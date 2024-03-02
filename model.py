@@ -211,5 +211,5 @@ input_image = cv2.imread('dog.jpg')
 X = cv2.resize(input_image, (28, 28))
 predictions = cnn.predict(X)
 print(predictions)
-predicted_animal = 'dog' if predictions != 1 else 'cat'
+predicted_animal = 'dog' if predictions[0] == 1 else 'cat'
 print("Predicted animal:", predicted_animal)
