@@ -9,11 +9,12 @@ def sigmoid_derivative(x):
     return x * (1 - x)
 
 class ConvLayer:
-    def __init__(self, num_filters, filter_size, num_channels=1):
+    def __init__(self, num_filters, filter_size, num_channels=3, l2_lambda=0.01):
         self.num_filters = num_filters
         self.filter_size = filter_size
         self.num_channels = num_channels
         self.filters = np.random.randn(num_filters, filter_size, filter_size, num_channels) / (filter_size * filter_size)
+        self.l2_lambda = l2_lambda
 
     def iterate_regions(self, image):
         h, w, _ = image.shape
@@ -42,7 +43,8 @@ class ConvLayer:
             for f in range(self.num_filters):
                 d_L_d_filters[f] += np.sum(d_L_d_out[i, j, f] * im_region)
 
-        self.filters -= learn_rate * d_L_d_filters
+        # Update filters with L2 regularization
+        self.filters = (1 - learn_rate * self.l2_lambda) * self.filters - learn_rate * d_L_d_filters
 
         return d_L_d_out
 
@@ -83,9 +85,10 @@ class MaxPool2:
         return d_L_d_input
 
 class FCLayer:
-    def __init__(self, input_len, output_len):
+    def __init__(self, input_len, output_len, l2_lambda=0.01):
         self.weights = np.random.randn(input_len, output_len) / input_len
         self.biases = np.zeros(output_len)
+        self.l2_lambda = l2_lambda
 
     def forward(self, input):
         self.last_input_shape = input.shape
@@ -99,17 +102,18 @@ class FCLayer:
         d_L_d_biases = d_L_d_out.mean(axis=0)
         d_L_d_input = np.dot(d_L_d_out, self.weights.T)
 
-        self.weights -= learn_rate * d_L_d_weights
+        # Update weights with L2 regularization
+        self.weights = (1 - learn_rate * self.l2_lambda) * self.weights - learn_rate * d_L_d_weights
         self.biases -= learn_rate * d_L_d_biases
 
         return d_L_d_input.reshape(self.last_input_shape)
 
 
 class CNN:
-    def __init__(self, num_classes=2):
-        self.conv = ConvLayer(8, 3, 1)
+    def __init__(self, num_classes=2, l2_lambda=0.01):
+        self.conv = ConvLayer(8, 3, 1, l2_lambda)
         self.pool = MaxPool2()
-        self.fc = FCLayer(13 * 13 * 8, num_classes)
+        self.fc = FCLayer(13 * 13 * 8, num_classes, l2_lambda)
 
     def forward(self, image):
         output = self.conv.forward((image / 255.0) - 0.5)
@@ -122,6 +126,7 @@ class CNN:
             total_loss = 0
             for i in range(len(X)):
                 out = self.forward(X[i])
+                out = sigmoid(out)
                 loss = -2 * (Y[i] - out)
                 loss *= sigmoid_derivative(out)
 
@@ -149,26 +154,36 @@ class CNN:
                 correct += 1
         return total_loss / len(X), correct / len(X)
 
-    # def predict(self, X):
-    #     predictions = []
-    #     for i in range(len(X)):
-    #         out = self.forward(X[i])
-    #         predictions.append(np.argmax(out))
-    #     return predictions
-    
     def predict(self, X):
         predictions = []
-        out = self.forward(X)
-        predictions.append(np.argmax(out))
+        for i in range(len(X)):
+            out = self.forward(X[i])
+            predictions.append(np.argmax(out))
         return predictions
+    
+    # def predict(self, X):
+    #     predictions = []
+    #     out = self.forward(X)
+    #     predictions.append(np.argmax(out))
+    #     return predictions
 	
+
+
+
+
+
+
+
+
+
+
 
 # Load dataset
 current_dir = os.path.dirname(os.path.abspath(__file__))
 dataset_dir = os.path.join(current_dir, 'dataset/train')
 dataset_test_dir = os.path.join(current_dir, 'dataset/test')
 
-classes = ['dogs', 'cats']
+classes = ['cats', 'dogs']
 train_images = []
 train_labels = []
 test_images = []
@@ -179,9 +194,9 @@ for class_idx, class_name in enumerate(classes):
     class_dir = os.path.join(dataset_dir, class_name)
     for filename in os.listdir(class_dir):
         image_path = os.path.join(class_dir, filename)
-        image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        image = cv2.imread(image_path)
         resized_image = cv2.resize(image, (28, 28))
-        train_images.append(resized_image.reshape((*resized_image.shape, 1)))
+        train_images.append(resized_image)
         train_labels.append(class_idx)
 
 train_images = np.array(train_images)
@@ -192,9 +207,9 @@ for class_idx, class_name in enumerate(classes):
     class_dir = os.path.join(dataset_test_dir, class_name)
     for filename in os.listdir(class_dir):
         image_path = os.path.join(class_dir, filename)
-        image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        image = cv2.imread(image_path)
         resized_image = cv2.resize(image, (28, 28))
-        test_images.append(resized_image.reshape((*resized_image.shape, 1)))
+        test_images.append(resized_image)
         test_labels.append(class_idx)
 
 test_images = np.array(test_images)
@@ -202,14 +217,15 @@ test_labels = np.array(test_labels)
 
 # Create and train CNN
 cnn = CNN()
-# cnn.train(train_images, train_labels, epochs=1, validation_data=(test_images, test_labels))
-# test_loss, test_acc = cnn.evaluate(test_images, test_labels)
-# print('Test accuracy:', test_acc)
+
+cnn.train(train_images, train_labels, epochs=10, validation_data=(test_images, test_labels))
+test_loss, test_acc = cnn.evaluate(test_images, test_labels)
+print('Test accuracy:', test_acc)
 
 # Example: Predicting a single image
-input_image = cv2.imread('dog.jpg')
-X = cv2.resize(input_image, (28, 28))
-predictions = cnn.predict(X)
-print(predictions)
-predicted_animal = 'dog' if predictions[0] == 1 else 'cat'
-print("Predicted animal:", predicted_animal)
+# input_image = cv2.imread('cat.jpg')
+# X = cv2.resize(input_image, (28, 28))
+# predictions = cnn.predict(X)
+# print(predictions)
+# predicted_animal = 'dog' if predictions[0] == 1 else 'cat'
+# print("Predicted animal:", predicted_animal)
