@@ -1,6 +1,7 @@
 import os
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
@@ -9,7 +10,7 @@ def sigmoid_derivative(x):
     return x * (1 - x)
 
 class ConvLayer:
-    def __init__(self, num_filters, filter_size, num_channels=3, l2_lambda=0.01):
+    def __init__(self, num_filters, filter_size, num_channels=3, l2_lambda=0.1):
         self.num_filters = num_filters
         self.filter_size = filter_size
         self.num_channels = num_channels
@@ -85,7 +86,7 @@ class MaxPool2:
         return d_L_d_input
 
 class FCLayer:
-    def __init__(self, input_len, output_len, l2_lambda=0.01):
+    def __init__(self, input_len, output_len, l2_lambda=0.1):
         self.weights = np.random.randn(input_len, output_len) / input_len
         self.biases = np.zeros(output_len)
         self.l2_lambda = l2_lambda
@@ -110,7 +111,7 @@ class FCLayer:
 
 
 class CNN:
-    def __init__(self, num_classes=2, l2_lambda=0.01):
+    def __init__(self, num_classes=2, l2_lambda=0.1):
         self.conv = ConvLayer(8, 3, 1, l2_lambda)
         self.pool = MaxPool2()
         self.fc = FCLayer(13 * 13 * 8, num_classes, l2_lambda)
@@ -122,6 +123,10 @@ class CNN:
         return output
 
     def train(self, X, Y, epochs=1, learn_rate=0.01, validation_data=None):
+        train_losses = []
+        val_losses = []
+        val_accuracies = []
+        
         for epoch in range(epochs):
             total_loss = 0
             for i in range(len(X)):
@@ -135,14 +140,29 @@ class CNN:
                 loss = self.conv.backward(loss, learn_rate)
 
                 total_loss += np.abs(loss).sum()
-
+            
+            train_loss = total_loss / len(X)
+            train_losses.append(train_loss)
+            
             if validation_data:
                 val_images, val_labels = validation_data
-                val_loss = self.evaluate(val_images, val_labels)
-                print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss / len(X)}, Val Loss: {val_loss}")
-
+                val_loss, val_acc = self.evaluate(val_images, val_labels)
+                val_losses.append(val_loss)
+                val_accuracies.append(val_acc)
+                
+                print(f"Epoch {epoch+1}/{epochs}, Loss: {train_loss}, Val Loss: {val_loss}, Val Acc: {val_acc}")
             else:
-                print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss / len(X)}")
+                print(f"Epoch {epoch+1}/{epochs}, Loss: {train_loss}")
+        
+        # Plotting the training and validation losses
+        plt.plot(range(1, epochs + 1), train_losses, label='Training Loss')
+        if validation_data:
+            plt.plot(range(1, epochs + 1), val_losses, label='Validation Loss')
+            plt.legend()
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.title('Training and Validation Loss')
+        plt.show()
 
     def evaluate(self, X, Y):
         total_loss = 0
@@ -218,7 +238,7 @@ test_labels = np.array(test_labels)
 # Create and train CNN
 cnn = CNN()
 
-cnn.train(train_images, train_labels, epochs=10, validation_data=(test_images, test_labels))
+cnn.train(train_images, train_labels, epochs=5, validation_data=(test_images, test_labels))
 test_loss, test_acc = cnn.evaluate(test_images, test_labels)
 print('Test accuracy:', test_acc)
 
