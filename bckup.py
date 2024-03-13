@@ -42,6 +42,7 @@ class ConvLayer:
 
     def backward(self, d_L_d_out, learn_rate):
         d_L_d_filters = np.zeros(self.filters.shape)
+        h_out, w_out, _ = d_L_d_out.shape
 
         for im_region, i, j in self.iterate_regions(self.last_input):
             for f in range(self.num_filters):
@@ -76,6 +77,7 @@ class MaxPool2:
 
     def backward(self, d_L_d_out):
         d_L_d_input = np.zeros(self.last_input.shape)
+        h_out, w_out, num_filters = d_L_d_out.shape
 
         for im_region, i, j in self.iterate_regions(self.last_input):
             h, w, f = im_region.shape
@@ -123,7 +125,6 @@ class CNN:
         output = self.conv.forward((image / 255.0) - 0.5)
         output = self.pool.forward(output)
         output = self.fc.forward(output)
-        output = sigmoid(output)
         return output
 
     def train(self, X, Y, epochs=1, learn_rate=0.01, validation_data=None):
@@ -135,14 +136,15 @@ class CNN:
             total_loss = 0
             for i in range(len(X)):
                 out = self.forward(X[i])
-                loss = np.mean(np.square(out - Y[i]))
-                total_loss += loss
+                out = sigmoid(out)
+                loss = -2 * (Y[i] - out)
+                loss *= sigmoid_derivative(out)
 
-                # Backpropagation
-                d_loss = 2 * (out - Y[i])
-                d_loss = self.fc.backward(d_loss, learn_rate)
-                d_loss = self.pool.backward(d_loss)
-                d_loss = self.conv.backward(d_loss, learn_rate)
+                loss = self.fc.backward(loss, learn_rate)
+                loss = self.pool.backward(loss)
+                loss = self.conv.backward(loss, learn_rate)
+
+                total_loss += np.abs(loss).sum()
 
             train_loss = total_loss / len(X)
             train_losses.append(train_loss)
@@ -177,18 +179,18 @@ class CNN:
                 correct += 1
         return total_loss / len(X), correct / len(X)
 
-    # def predict(self, X):
-    #     predictions = []
-    #     for i in range(len(X)):
-    #         out = self.forward(X[i])
-    #         predictions.append(np.argmax(out))
-    #     return predictions
-
     def predict(self, X):
         predictions = []
-        out = self.forward(X)
-        predictions.append(np.argmax(out))
+        for i in range(len(X)):
+            out = self.forward(X[i])
+            predictions.append(np.argmax(out))
         return predictions
+
+    # def predict(self, X):
+    #     predictions = []
+    #     out = self.forward(X)
+    #     predictions.append(np.argmax(out))
+    #     return predictions
 
 
 # Load dataset
@@ -231,14 +233,16 @@ test_labels = np.array(test_labels)
 # Create and train CNN
 cnn = CNN()
 
-# cnn.train(train_images, train_labels, epochs=5, validation_data=(test_images, test_labels))
-# test_loss, test_acc = cnn.evaluate(test_images, test_labels)
-# print('Test accuracy:', test_acc)
+cnn.train(train_images, train_labels, epochs=10, validation_data=(test_images, test_labels))
+test_loss, test_acc = cnn.evaluate(test_images, test_labels)
+print('Test accuracy:', test_acc)
 
 # Example: Predicting a single image
-input_image = cv2.imread('cat.jpg')
-X = cv2.resize(input_image, (28, 28))
+current_dir = os.path.dirname(os.path.abspath(__file__))
+image_path = os.path.join(current_dir, 'dog.jpg')
+image = cv2.imread(image_path)
+X = cv2.resize(image, (28, 28))
 predictions = cnn.predict(X)
 print(predictions)
-predicted_animal = 'dog' if predictions[0] == 1 else 'cat'
+predicted_animal = 'cat' if predictions[0] == 0 else 'dog'
 print("Predicted animal:", predicted_animal)
