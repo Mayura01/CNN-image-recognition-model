@@ -3,27 +3,23 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 def sigmoid(x):
+    x = np.clip(x, -500, 500)
     return 1 / (1 + np.exp(-x))
-
 
 def sigmoid_derivative(x):
     return x * (1 - x)
-
 
 class ConvLayer:
     def __init__(self, num_filters, filter_size, num_channels=3, l2_lambda=0.1):
         self.num_filters = num_filters
         self.filter_size = filter_size
         self.num_channels = num_channels
-        self.filters = np.random.randn(num_filters, filter_size, filter_size, num_channels) / (
-                    filter_size * filter_size)
+        self.filters = np.random.randn(num_filters, filter_size, filter_size, num_channels) * 0.1
         self.l2_lambda = l2_lambda
 
     def iterate_regions(self, image):
         h, w, _ = image.shape
-
         for i in range(h - self.filter_size + 1):
             for j in range(w - self.filter_size + 1):
                 im_region = image[i:(i + self.filter_size), j:(j + self.filter_size)]
@@ -45,13 +41,10 @@ class ConvLayer:
 
         for im_region, i, j in self.iterate_regions(self.last_input):
             for f in range(self.num_filters):
-                d_L_d_filters[f] += np.sum(d_L_d_out[i, j, f] * im_region)
+                d_L_d_filters[f] += d_L_d_out[i, j, f] * im_region
 
-        # Update filters with L2 regularization
         self.filters = (1 - learn_rate * self.l2_lambda) * self.filters - learn_rate * d_L_d_filters
-
         return d_L_d_out
-
 
 class MaxPool2:
     def iterate_regions(self, image):
@@ -87,10 +80,9 @@ class MaxPool2:
 
         return d_L_d_input
 
-
 class FCLayer:
     def __init__(self, input_len, output_len, l2_lambda=0.1):
-        self.weights = np.random.randn(input_len, output_len) / input_len
+        self.weights = np.random.randn(input_len, output_len) * 0.1
         self.biases = np.zeros(output_len)
         self.l2_lambda = l2_lambda
 
@@ -106,16 +98,14 @@ class FCLayer:
         d_L_d_biases = d_L_d_out.mean(axis=0)
         d_L_d_input = np.dot(d_L_d_out, self.weights.T)
 
-        # Update weights with L2 regularization
         self.weights = (1 - learn_rate * self.l2_lambda) * self.weights - learn_rate * d_L_d_weights
         self.biases -= learn_rate * d_L_d_biases
 
         return d_L_d_input.reshape(self.last_input_shape)
 
-
 class CNN:
     def __init__(self, num_classes=2, l2_lambda=0.1):
-        self.conv = ConvLayer(8, 3, 1, l2_lambda)
+        self.conv = ConvLayer(8, 3, 3, l2_lambda)
         self.pool = MaxPool2()
         self.fc = FCLayer(13 * 13 * 8, num_classes, l2_lambda)
 
@@ -153,11 +143,10 @@ class CNN:
                 val_losses.append(val_loss)
                 val_accuracies.append(val_acc)
 
-                print(f"Epoch {epoch + 1}/{epochs}, Loss: {train_loss}, Val Loss: {val_loss}, Val Acc: {val_acc}")
+                print(f"Epoch {epoch + 1}/{epochs}, Loss: {round(train_loss, 2)}, Val Loss: {round(val_loss, 2)}, Val Acc: {round(val_acc, 2)}")
             else:
-                print(f"Epoch {epoch + 1}/{epochs}, Loss: {train_loss}")
+                print(f"Epoch {epoch + 1}/{epochs}, Loss: {round(train_loss, 2)}")
 
-        # Plotting the training and validation losses
         plt.plot(range(1, epochs + 1), train_losses, label='Training Loss')
         if validation_data:
             plt.plot(range(1, epochs + 1), val_losses, label='Validation Loss')
@@ -165,37 +154,32 @@ class CNN:
         plt.xlabel('Epochs')
         plt.ylabel('Loss')
         plt.title('Training and Validation Loss')
-        plt.show()
+        plt.savefig('training_plot.png')
 
     def evaluate(self, X, Y):
         total_loss = 0
         correct = 0
         for i in range(len(X)):
             out = self.forward(X[i])
-            total_loss += np.abs(-2 * (Y[i] - out)).sum()
+            total_loss += np.mean(np.square(Y[i] - out))
             if np.argmax(out) == Y[i]:
                 correct += 1
         return total_loss / len(X), correct / len(X)
 
-    # def predict(self, X):
-    #     predictions = []
-    #     for i in range(len(X)):
-    #         out = self.forward(X[i])
-    #         predictions.append(np.argmax(out))
-    #     return predictions
-
     def predict(self, X):
         predictions = []
-        out = self.forward(X)
-        predictions.append(np.argmax(out))
+        for i in range(len(X)):
+            out = self.forward(X[i])
+            predictions.append(np.argmax(out))
         return predictions
 
+    def generate(self, X):
+        out = self.forward(X)
+        return np.argmax(out)
 
 # Load dataset
-current_dir = os.path.dirname(os.path.abspath(__file__))
-dataset_dir = os.path.join(current_dir, 'dataset/train')
-dataset_test_dir = os.path.join(current_dir, 'dataset/test')
-
+dataset_dir = 'dataset/train'
+dataset_test_dir = 'dataset/test'
 classes = ['cats', 'dogs']
 train_images = []
 train_labels = []
@@ -231,14 +215,13 @@ test_labels = np.array(test_labels)
 # Create and train CNN
 cnn = CNN()
 
-# cnn.train(train_images, train_labels, epochs=5, validation_data=(test_images, test_labels))
-# test_loss, test_acc = cnn.evaluate(test_images, test_labels)
-# print('Test accuracy:', test_acc)
+cnn.train(train_images, train_labels, epochs=5, learn_rate=0.01, validation_data=(test_images, test_labels))
+test_loss, test_acc = cnn.evaluate(test_images, test_labels)
+print('Test accuracy:', round(test_acc, 2))
 
 # Example: Predicting a single image
-input_image = cv2.imread('cat.jpg')
+input_image = cv2.imread('dog.jpg')
 X = cv2.resize(input_image, (28, 28))
-predictions = cnn.predict(X)
-print(predictions)
-predicted_animal = 'dog' if predictions[0] == 1 else 'cat'
+prediction = cnn.generate(X)
+predicted_animal = 'dog' if prediction == 1 else 'cat'
 print("Predicted animal:", predicted_animal)
